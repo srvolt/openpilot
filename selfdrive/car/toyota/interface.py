@@ -75,7 +75,7 @@ class CarInterface(object):
 
       ret.steerActuatorDelay = 0.5
 
-	elif candidate == CAR.PRIUS_PRIME:
+    elif candidate == CAR.PRIUS_PRIME:
       stop_and_go = True
       ret.safetyParam = 66  # see conversion factor for STEER_TORQUE_EPS in dbc file
       ret.wheelbase = 2.70
