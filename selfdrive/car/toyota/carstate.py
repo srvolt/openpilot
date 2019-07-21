@@ -34,6 +34,7 @@ def get_can_parser(CP):
     ("TC_DISABLED", "ESP_CONTROL", 1),
     ("STEER_FRACTION", "STEER_ANGLE_SENSOR", 0),
     ("STEER_RATE", "STEER_ANGLE_SENSOR", 0),
+    ("STEER_ANGLE", "STEER_ANGLE_SENSOR", 0),
     ("CRUISE_ACTIVE", "PCM_CRUISE", 0),
     ("CRUISE_STATE", "PCM_CRUISE", 0),
     ("MAIN_ON", "PCM_CRUISE_2", 0),
@@ -65,7 +66,7 @@ def get_can_parser(CP):
   else:
     signals += [("STEER_ANGLE", "STEER_TORQUE_SENSOR", 0)]
 
-  if CP.carFingerprint == CAR.PRIUS:
+  if CP.carFingerprint == CAR.PRIUS_PRIME:
     signals += [("STATE", "AUTOPARK_STATUS", 0)]
 
   # add gas interceptor reading if we are using it
