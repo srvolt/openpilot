@@ -42,7 +42,7 @@ def get_can_parser(CP):
     ("LOW_SPEED_LOCKOUT", "PCM_CRUISE_2", 0),
     ("STEER_TORQUE_DRIVER", "STEER_TORQUE_SENSOR", 0),
     ("STEER_TORQUE_EPS", "STEER_TORQUE_SENSOR", 0),
-	("STEER_ANGLE", "STEER_TORQUE_SENSOR", 0),
+    ("STEER_ANGLE", "STEER_TORQUE_SENSOR", 0),
     ("TURN_SIGNALS", "STEERING_LEVERS", 3),   # 3 is no blinkers
     ("LKA_STATE", "EPS_STATUS", 0),
     ("IPAS_STATE", "EPS_STATUS", 1),
@@ -61,10 +61,7 @@ def get_can_parser(CP):
     ("EPS_STATUS", 25),
   ]
 
-  if CP.carFingerprint in NO_DSU_CAR:
-    signals += [("STEER_ANGLE", "STEER_TORQUE_SENSOR", 0)]
-  else:
-    signals += [("STEER_ANGLE", "STEER_TORQUE_SENSOR", 0)]
+  
 
   if CP.carFingerprint == CAR.PRIUS_PRIME:
     signals += [("STATE", "AUTOPARK_STATUS", 0)]
