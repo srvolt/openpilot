@@ -65,7 +65,7 @@ def get_can_parser(CP):
   else:
     signals += [("STEER_ANGLE", "STEER_ANGLE_SENSOR", 0)]
 
-  if CP.carFingerprint == CAR.PRIUS_PRIME:
+  if CP.carFingerprint == CAR.PRIUS_PRIME or CP.carFingerprint == CAR.PRIUS:
     signals += [("STATE", "AUTOPARK_STATUS", 0)]
 
   # add gas interceptor reading if we are using it
@@ -94,8 +94,8 @@ class CarState(object):
     self.shifter_values = self.can_define.dv["GEAR_PACKET"]['GEAR']
     self.left_blinker_on = 0
     self.right_blinker_on = 0
-    self.isoffset = 0
-    self.offset = 0
+    self.offset = 0.
+    self.isoffset = False
     
     # initialize can parser
     self.car_fingerprint = CP.carFingerprint
@@ -144,17 +144,16 @@ class CarState(object):
     self.a_ego = float(v_ego_x[1])
     self.standstill = not v_wheel > 0.001
 
-    if self.CP.carFingerprint in NO_DSU_CAR:
+    if self.CP.carFingerprint in NO_DSU_CAR or self.CP.carFingerprint == CAR.PRIUS_PRIME: # Vehicle that needs offsetting
+      self.angle_steers_wheel = cp.vl["STEER_ANGLE_SENSOR"]['STEER_ANGLE'] + cp.vl["STEER_ANGLE_SENSOR"]['STEER_FRACTION']
+      self.angle_steers = cp.vl["STEER_TORQUE_SENSOR"]['STEER_ANGLE'] - self.offset
+      if not self.isoffset:
+        self.offset = self.angle_steers - self.angle_steers_wheel
+        self.isoffset = True
+    elif self.CP.carFingerprint in TSS2_CAR:
       self.angle_steers = cp.vl["STEER_TORQUE_SENSOR"]['STEER_ANGLE']
     else:
-      self.angle_steers_old = cp.vl["STEER_ANGLE_SENSOR"]['STEER_ANGLE'] + cp.vl["STEER_ANGLE_SENSOR"]['STEER_FRACTION']
-      
-    self.angle_steers = cp.vl["STEER_TORQUE_SENSOR"]['STEER_ANGLE'] - self.offset
-    
-    if self.isoffset == 0:
-        self.offset = self.angle_steers - self.angle_steers_old
-        self.isoffset = 1
-        
+      self.angle_steers = cp.vl["STEER_ANGLE_SENSOR"]['STEER_ANGLE'] + cp.vl["STEER_ANGLE_SENSOR"]['STEER_FRACTION']
     self.angle_steers_rate = cp.vl["STEER_ANGLE_SENSOR"]['STEER_RATE']
     
     can_gear = int(cp.vl["GEAR_PACKET"]['GEAR'])
