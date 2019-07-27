@@ -34,7 +34,6 @@ def get_can_parser(CP):
     ("TC_DISABLED", "ESP_CONTROL", 1),
     ("STEER_FRACTION", "STEER_ANGLE_SENSOR", 0),
     ("STEER_RATE", "STEER_ANGLE_SENSOR", 0),
-    ("STEER_ANGLE", "STEER_ANGLE_SENSOR", 0),
     ("CRUISE_ACTIVE", "PCM_CRUISE", 0),
     ("CRUISE_STATE", "PCM_CRUISE", 0),
     ("MAIN_ON", "PCM_CRUISE_2", 0),
@@ -61,7 +60,10 @@ def get_can_parser(CP):
     ("EPS_STATUS", 25),
   ]
 
-  
+  if CP.carFingerprint in NO_DSU_CAR:
+    signals += [("STEER_ANGLE", "STEER_TORQUE_SENSOR", 0)]
+  else:
+    signals += [("STEER_ANGLE", "STEER_ANGLE_SENSOR", 0)]
 
   if CP.carFingerprint == CAR.PRIUS_PRIME:
     signals += [("STATE", "AUTOPARK_STATUS", 0)]
@@ -142,12 +144,19 @@ class CarState(object):
     self.a_ego = float(v_ego_x[1])
     self.standstill = not v_wheel > 0.001
 
-    self.angle_steers_old = cp.vl["STEER_ANGLE_SENSOR"]['STEER_ANGLE'] + cp.vl["STEER_ANGLE_SENSOR"]['STEER_FRACTION']
-    self.angle_steers_rate = cp.vl["STEER_ANGLE_SENSOR"]['STEER_RATE']
+    if self.CP.carFingerprint in NO_DSU_CAR:
+      self.angle_steers = cp.vl["STEER_TORQUE_SENSOR"]['STEER_ANGLE']
+    else:
+      self.angle_steers_old = cp.vl["STEER_ANGLE_SENSOR"]['STEER_ANGLE'] + cp.vl["STEER_ANGLE_SENSOR"]['STEER_FRACTION']
+      
     self.angle_steers = cp.vl["STEER_TORQUE_SENSOR"]['STEER_ANGLE'] - self.offset
+    
     if self.isoffset == 0:
         self.offset = self.angle_steers - self.angle_steers_old
         self.isoffset = 1
+        
+    self.angle_steers_rate = cp.vl["STEER_ANGLE_SENSOR"]['STEER_RATE']
+    
     can_gear = int(cp.vl["GEAR_PACKET"]['GEAR'])
     self.gear_shifter = parse_gear_shifter(can_gear, self.shifter_values)
     self.main_on = cp.vl["PCM_CRUISE_2"]['MAIN_ON']
