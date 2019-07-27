@@ -41,7 +41,6 @@ def get_can_parser(CP):
     ("LOW_SPEED_LOCKOUT", "PCM_CRUISE_2", 0),
     ("STEER_TORQUE_DRIVER", "STEER_TORQUE_SENSOR", 0),
     ("STEER_TORQUE_EPS", "STEER_TORQUE_SENSOR", 0),
-    ("STEER_ANGLE", "STEER_TORQUE_SENSOR", 0),
     ("TURN_SIGNALS", "STEERING_LEVERS", 3),   # 3 is no blinkers
     ("LKA_STATE", "EPS_STATUS", 0),
     ("IPAS_STATE", "EPS_STATUS", 1),
@@ -60,7 +59,7 @@ def get_can_parser(CP):
     ("EPS_STATUS", 25),
   ]
 
-  if CP.carFingerprint in NO_DSU_CAR:
+  if CP.carFingerprint in [NO_DSU_CAR,HD_STEER_SENSOR_CARS]:
     signals += [("STEER_ANGLE", "STEER_TORQUE_SENSOR", 0)]
   else:
     signals += [("STEER_ANGLE", "STEER_ANGLE_SENSOR", 0)]
@@ -144,7 +143,7 @@ class CarState(object):
     self.a_ego = float(v_ego_x[1])
     self.standstill = not v_wheel > 0.001
 
-    if self.CP.carFingerprint in NO_DSU_CAR or self.CP.carFingerprint == CAR.PRIUS_PRIME: # Vehicle that needs offsetting
+    if self.CP.carFingerprint in [NO_DSU_CAR,HD_STEER_SENSOR_CARS]: # Vehicle that needs offsetting
       self.angle_steers_wheel = cp.vl["STEER_ANGLE_SENSOR"]['STEER_ANGLE'] + cp.vl["STEER_ANGLE_SENSOR"]['STEER_FRACTION']
       self.angle_steers = cp.vl["STEER_TORQUE_SENSOR"]['STEER_ANGLE'] - self.offset
       if not self.isoffset:
