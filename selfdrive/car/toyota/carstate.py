@@ -60,7 +60,7 @@ def get_can_parser(CP):
     ("EPS_STATUS", 25),
   ]
 
-  if CP.carFingerprint in [NO_DSU_CAR, HD_STEER_SENSOR_CARS]:
+  if CP.carFingerprint == CAR.PRIUS_2020:
     signals += [("STEER_ANGLE", "STEER_TORQUE_SENSOR", 0)]
 
   if CP.carFingerprint == CAR.PRIUS or CAR.PRIUS_2020:
