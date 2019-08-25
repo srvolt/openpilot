@@ -56,11 +56,11 @@ class CarInterface(object):
 
     ret.steerActuatorDelay = 0.12  # Default delay, Prius has larger delay
 
-    if candidate not in [CAR.PRIUS, CAR.RAV4, CAR.RAV4H]: # These cars use LQR/INDI
+    if candidate not in [CAR.PRIUS, CAR.PRIUS_2020, CAR.RAV4, CAR.RAV4H]: # These cars use LQR/INDI
       ret.lateralTuning.init('pid')
       ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kpBP = [[0.], [0.]]
 
-    if candidate == CAR.PRIUS:
+    if candidate in [CAR.PRIUS, CAR.PRIUS_2020]:
       stop_and_go = True
       ret.safetyParam = 66  # see conversion factor for STEER_TORQUE_EPS in dbc file
       ret.wheelbase = 2.70
@@ -87,17 +87,6 @@ class CarInterface(object):
       # ret.lateralTuning.lqr.dcGain = 0.002237852961363602
 
       ret.steerActuatorDelay = 0.5
-      
-    elif candidate == CAR.PRIUS_2020:
-      stop_and_go = True
-      ret.safetyParam = 66  # see conversion factor for STEER_TORQUE_EPS in dbc file
-      ret.wheelbase = 2.70
-      ret.steerRatio = 15.74   # unknown end-to-end spec
-      tire_stiffness_factor = 0.6371   # hand-tune
-      ret.mass = 3045. * CV.LB_TO_KG + STD_CARGO_KG
-      
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.6], [0.1]]
-      ret.lateralTuning.pid.kf = 0.00007818594
       
     elif candidate in [CAR.RAV4, CAR.RAV4H]:
       stop_and_go = True if (candidate in CAR.RAV4H) else False
