@@ -30,22 +30,27 @@
 
 // #define DUMP_YUV
 
-Eigen::Matrix<float, MODEL_PATH_DISTANCE, POLYFIT_DEGREE> vander;
+Eigen::Matrix<float, MODEL_PATH_DISTANCE, POLYFIT_DEGREE - 1> vander;
 
 void model_init(ModelState* s, cl_device_id device_id, cl_context context, int temporal) {
   model_input_init(&s->in, MODEL_WIDTH, MODEL_HEIGHT, device_id, context);
   const int output_size = OUTPUT_SIZE + TEMPORAL_SIZE;
   s->output = (float*)malloc(output_size * sizeof(float));
   memset(s->output, 0, output_size * sizeof(float));
-  s->m = new DefaultRunModel("../../models/driving_model.dlc", s->output, output_size);
+  s->m = new DefaultRunModel("../../models/driving_model.dlc", s->output, output_size, USE_GPU_RUNTIME);
 #ifdef TEMPORAL
   assert(temporal);
   s->m->addRecurrent(&s->output[OUTPUT_SIZE], TEMPORAL_SIZE);
 #endif
+#ifdef DESIRE
+  s->desire = (float*)malloc(DESIRE_SIZE * sizeof(float));
+  for (int i = 0; i < DESIRE_SIZE; i++) s->desire[i] = 0.0;
+  s->m->addDesire(s->desire, DESIRE_SIZE);
+#endif
 
   // Build Vandermonde matrix
   for(int i = 0; i < MODEL_PATH_DISTANCE; i++) {
-    for(int j = 0; j < POLYFIT_DEGREE; j++) {
+    for(int j = 0; j < POLYFIT_DEGREE - 1; j++) {
       vander(i, j) = pow(i, POLYFIT_DEGREE-j-1);
     }
   }
@@ -53,7 +58,7 @@ void model_init(ModelState* s, cl_device_id device_id, cl_context context, int t
 
 ModelData model_eval_frame(ModelState* s, cl_command_queue q,
                            cl_mem yuv_cl, int width, int height,
-                           mat3 transform, void* sock) {
+                           mat3 transform, void* sock, float *desire_in) {
   struct {
     float *path;
     float *left_lane;
@@ -61,6 +66,12 @@ ModelData model_eval_frame(ModelState* s, cl_command_queue q,
     float *lead;
     float *speed;
   } net_outputs = {NULL};
+
+#ifdef DESIRE
+  if (desire_in != NULL) {
+    for (int i = 0; i < DESIRE_SIZE; i++) s->desire[i] = desire_in[i];
+  }
+#endif
 
   //for (int i = 0; i < OUTPUT_SIZE + TEMPORAL_SIZE; i++) { printf("%f ", s->output[i]); } printf("\n");
 
@@ -184,14 +195,17 @@ void poly_fit(float *in_pts, float *in_stds, float *out) {
   // References to inputs
   Eigen::Map<Eigen::Matrix<float, MODEL_PATH_DISTANCE, 1> > pts(in_pts, MODEL_PATH_DISTANCE);
   Eigen::Map<Eigen::Matrix<float, MODEL_PATH_DISTANCE, 1> > std(in_stds, MODEL_PATH_DISTANCE);
-  Eigen::Map<Eigen::Matrix<float, POLYFIT_DEGREE, 1> > p(out, POLYFIT_DEGREE);
+  Eigen::Map<Eigen::Matrix<float, POLYFIT_DEGREE - 1, 1> > p(out, POLYFIT_DEGREE - 1);
+
+  float y0 = pts[0];
+  pts = pts.array() - y0;
 
   // Build Least Squares equations
-  Eigen::Matrix<float, MODEL_PATH_DISTANCE, POLYFIT_DEGREE> lhs = vander.array().colwise() / std.array();
+  Eigen::Matrix<float, MODEL_PATH_DISTANCE, POLYFIT_DEGREE - 1> lhs = vander.array().colwise() / std.array();
   Eigen::Matrix<float, MODEL_PATH_DISTANCE, 1> rhs = pts.array() / std.array();
 
   // Improve numerical stability
-  Eigen::Matrix<float, POLYFIT_DEGREE, 1> scale = 1. / (lhs.array()*lhs.array()).sqrt().colwise().sum();
+  Eigen::Matrix<float, POLYFIT_DEGREE - 1, 1> scale = 1. / (lhs.array()*lhs.array()).sqrt().colwise().sum();
   lhs = lhs * scale.asDiagonal();
 
   // Solve inplace
@@ -200,4 +214,67 @@ void poly_fit(float *in_pts, float *in_stds, float *out) {
 
   // Apply scale to output
   p = p.transpose() * scale.asDiagonal();
+  out[3] = y0;
 }
+
+
+void fill_path(cereal::ModelData::PathData::Builder path, const PathData path_data) {
+  if (std::getenv("DEBUG")){
+    kj::ArrayPtr<const float> stds(&path_data.stds[0], ARRAYSIZE(path_data.stds));
+    path.setStds(stds);
+
+    kj::ArrayPtr<const float> points(&path_data.points[0], ARRAYSIZE(path_data.points));
+    path.setPoints(points);
+  }
+
+  kj::ArrayPtr<const float> poly(&path_data.poly[0], ARRAYSIZE(path_data.poly));
+  path.setPoly(poly);
+  path.setProb(path_data.prob);
+  path.setStd(path_data.std);
+}
+
+void fill_lead(cereal::ModelData::LeadData::Builder lead, const LeadData lead_data) {
+  lead.setDist(lead_data.dist);
+  lead.setProb(lead_data.prob);
+  lead.setStd(lead_data.std);
+  lead.setRelY(lead_data.rel_y);
+  lead.setRelYStd(lead_data.rel_y_std);
+  lead.setRelVel(lead_data.rel_v);
+  lead.setRelVelStd(lead_data.rel_v_std);
+  lead.setRelA(lead_data.rel_a);
+  lead.setRelAStd(lead_data.rel_a_std);
+}
+
+void model_publish(PubSocket *sock, uint32_t frame_id,
+                   const ModelData data, uint64_t timestamp_eof) {
+        // make msg
+        capnp::MallocMessageBuilder msg;
+        cereal::Event::Builder event = msg.initRoot<cereal::Event>();
+        event.setLogMonoTime(nanos_since_boot());
+
+        auto framed = event.initModel();
+        framed.setFrameId(frame_id);
+        framed.setTimestampEof(timestamp_eof);
+
+        kj::ArrayPtr<const float> speed(&data.speed[0], ARRAYSIZE(data.speed));
+        framed.setSpeed(speed);
+
+
+        auto lpath = framed.initPath();
+        fill_path(lpath, data.path);
+        auto left_lane = framed.initLeftLane();
+        fill_path(left_lane, data.left_lane);
+        auto right_lane = framed.initRightLane();
+        fill_path(right_lane, data.right_lane);
+
+        auto lead = framed.initLead();
+        fill_lead(lead, data.lead);
+        auto lead_future = framed.initLeadFuture();
+        fill_lead(lead_future, data.lead_future);
+
+
+        // send message
+        auto words = capnp::messageToFlatArray(msg);
+        auto bytes = words.asBytes();
+        sock->send((char*)bytes.begin(), bytes.size());
+      }

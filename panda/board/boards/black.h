@@ -23,8 +23,10 @@ void black_enable_can_transciever(uint8_t transciever, bool enabled) {
 }
 
 void black_enable_can_transcievers(bool enabled) {
-  for(uint8_t i=1; i<=4U; i++)
+  uint8_t t1 = enabled ? 1U : 2U;  // leave transciever 1 enabled to detect CAN ignition
+  for(uint8_t i=t1; i<=4U; i++) {
     black_enable_can_transciever(i, enabled);
+  }
 }
 
 void black_set_led(uint8_t color, bool enabled) {
@@ -37,26 +39,49 @@ void black_set_led(uint8_t color, bool enabled) {
       break;
     case LED_BLUE:
       set_gpio_output(GPIOC, 6, !enabled);
-      break;  
+      break;
     default:
       break;
   }
 }
 
-void black_set_usb_power_mode(uint8_t mode){
-  usb_power_mode = mode;
-  puts("Trying to set USB power mode on black panda. This is not supported.\n");
+void black_set_gps_load_switch(bool enabled) {
+  set_gpio_output(GPIOC, 12, enabled);
+}
+
+void black_set_usb_load_switch(bool enabled) {
+  set_gpio_output(GPIOB, 1, !enabled);
+}
+
+void black_set_usb_power_mode(uint8_t mode) {
+  bool valid = false;
+  switch (mode) {
+    case USB_POWER_CLIENT:
+      black_set_usb_load_switch(false);
+      valid = true;
+      break;
+    case USB_POWER_CDP:
+      black_set_usb_load_switch(true);
+      valid = true;
+      break;
+    default:
+      puts("Invalid USB power mode\n");
+      break;
+  }
+  if (valid) {
+    usb_power_mode = mode;
+  }
 }
 
 void black_set_esp_gps_mode(uint8_t mode) {
   switch (mode) {
     case ESP_GPS_DISABLED:
-      // ESP OFF
+      // GPS OFF
       set_gpio_output(GPIOC, 14, 0);
       set_gpio_output(GPIOC, 5, 0);
       break;
     case ESP_GPS_ENABLED:
-      // ESP ON
+      // GPS ON
       set_gpio_output(GPIOC, 14, 1);
       set_gpio_output(GPIOC, 5, 1);
       break;
@@ -90,7 +115,7 @@ void black_set_can_mode(uint8_t mode){
         // B12,B13: OBD mode
         set_gpio_alternate(GPIOB, 12, GPIO_AF9_CAN2);
         set_gpio_alternate(GPIOB, 13, GPIO_AF9_CAN2);
-      }      
+      }
       break;
     default:
       puts("Tried to set unsupported CAN mode: "); puth(mode); puts("\n");
@@ -106,6 +131,19 @@ void black_usb_power_mode_tick(uint64_t tcnt){
 bool black_check_ignition(void){
   // ignition is checked through harness
   return harness_check_ignition();
+}
+
+uint32_t black_read_current(void){
+  // No current sense on black panda
+  return 0U;
+}
+
+void black_set_ir_power(uint8_t percentage){
+  UNUSED(percentage);
+}
+
+void black_set_fan_power(uint8_t percentage){
+  UNUSED(percentage);
 }
 
 void black_init(void) {
@@ -129,12 +167,14 @@ void black_init(void) {
   set_gpio_output(GPIOC, 10, 1);
   set_gpio_output(GPIOC, 11, 1);
 
-  // C8: FAN aka TIM3_CH3
-  set_gpio_alternate(GPIOC, 8, GPIO_AF2_TIM3);
+  // Turn on GPS load switch.
+  black_set_gps_load_switch(true);
 
-  // C12: GPS load switch. Turn on permanently for now
-  set_gpio_output(GPIOC, 12, true);
-  //set_gpio_output(GPIOC, 12, false); //TODO: stupid inverted switch on prototype
+  // Turn on USB load switch.
+  black_set_usb_load_switch(true);
+
+  // Set right power mode
+  black_set_usb_power_mode(USB_POWER_CDP);
 
   // Initialize harness
   harness_init();
@@ -184,5 +224,8 @@ const board board_black = {
   .set_esp_gps_mode = black_set_esp_gps_mode,
   .set_can_mode = black_set_can_mode,
   .usb_power_mode_tick = black_usb_power_mode_tick,
-  .check_ignition = black_check_ignition
+  .check_ignition = black_check_ignition,
+  .read_current = black_read_current,
+  .set_fan_power = black_set_fan_power,
+  .set_ir_power = black_set_ir_power
 };

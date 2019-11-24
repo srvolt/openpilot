@@ -297,7 +297,7 @@ struct HealthData {
   # from can health
   voltage @0 :UInt32;
   current @1 :UInt32;
-  started @2 :Bool;
+  ignitionLine @2 :Bool;
   controlsAllowed @3 :Bool;
   gasInterceptorDetected @4 :Bool;
   startedSignalDetectedDeprecated @5 :Bool;
@@ -305,7 +305,11 @@ struct HealthData {
   canSendErrs @7 :UInt32;
   canFwdErrs @8 :UInt32;
   gmlanSendErrs @9 :UInt32;
-  hwType @10: HwType;
+  hwType @10 :HwType;
+  fanSpeedRpm @11 :UInt16;
+  usbPowerMode @12 :UsbPowerMode;
+  ignitionCan @13 :Bool;
+  safetyModel @14 :Car.CarParams.SafetyModel;
 
   enum HwType {
     unknown @0;
@@ -313,6 +317,14 @@ struct HealthData {
     greyPanda @2;
     blackPanda @3;
     pedal @4;
+    uno @5;
+  }
+
+  enum UsbPowerMode {
+    none @0;
+    client @1;
+    cdp @2;
+    dcp @3;
   }
 }
 
@@ -442,7 +454,7 @@ struct ControlsState @0x97ff69c53601abf1 {
   alertSoundDEPRECATED @45 :Text;
   alertSound @56 :Car.CarControl.HUDControl.AudibleAlert;
   awarenessStatus @26 :Float32;
-  angleModelBias @27 :Float32;
+  angleModelBiasDEPRECATED @27 :Float32;
   gpsPlannerActive @40 :Bool;
   engageable @41 :Bool;  # can OP be engaged?
   driverMonitoringOn @43 :Bool;
@@ -516,7 +528,9 @@ struct ControlsState @0x97ff69c53601abf1 {
     steerAngle @1 :Float32;
     i @2 :Float32;
     output @3 :Float32;
+    lqrOutput @4 :Float32;
    }
+
 
 }
 
@@ -527,6 +541,7 @@ struct LiveEventData {
 
 struct ModelData {
   frameId @0 :UInt32;
+  timestampEof @9 :UInt64;
 
   path @1 :PathData;
   leftLane @2 :PathData;
@@ -697,6 +712,32 @@ struct PathPlan {
   sensorValid @14 :Bool;
   commIssue @15 :Bool;
   posenetValid @16 :Bool;
+  desire @17 :Desire;
+  laneChangeState @18 :LaneChangeState;
+  laneChangeDirection @19 :LaneChangeDirection;
+
+  enum Desire {
+    none @0;
+    turnLeft @1;
+    turnRight @2;
+    laneChangeLeft @3;
+    laneChangeRight @4;
+    keepLeft @5;
+    keepRight @6;
+  }
+
+  enum LaneChangeState {
+    off @0;
+    preLaneChange @1;
+    laneChangeStarting @2;
+    laneChangeFinishing @3;
+  }
+
+  enum LaneChangeDirection {
+    none @0;
+    left @1;
+    right @2;
+  }
 }
 
 struct LiveLocationData {
@@ -1684,6 +1725,7 @@ struct DriverMonitoring {
   rightEyeProb @7 :Float32;
   leftBlinkProb @8 :Float32;
   rightBlinkProb @9 :Float32;
+  irPwr @10 :Float32;
 }
 
 struct Boot {
@@ -1726,6 +1768,8 @@ struct LiveMapData {
 }
 
 struct CameraOdometry {
+  frameId @4 :UInt32;
+  timestampEof @5 :UInt64;
   trans @0 :List(Float32); # m/s in device frame
   rot @1 :List(Float32); # rad/s in device frame
   transStd @2 :List(Float32); # std m/s in device frame

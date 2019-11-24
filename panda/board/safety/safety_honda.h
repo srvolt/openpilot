@@ -8,16 +8,19 @@
 //      brake > 0mph
 
 const int HONDA_GAS_INTERCEPTOR_THRESHOLD = 328;  // ratio between offset and gain from dbc file
-int honda_brake_prev = 0;
+int honda_brake = 0;
 int honda_gas_prev = 0;
+bool honda_brake_pressed_prev = false;
 bool honda_moving = false;
 bool honda_bosch_hardware = false;
 bool honda_alt_brake_msg = false;
+bool honda_fwd_brake = false;
 
 static void honda_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
 
   int addr = GET_ADDR(to_push);
   int len = GET_LEN(to_push);
+  int bus = GET_BUS(to_push);
 
   // sample speed
   if (addr == 0x158) {
@@ -51,11 +54,11 @@ static void honda_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
   // exit controls on rising edge of brake press or on brake press when speed > 0
   bool is_user_brake_msg = honda_alt_brake_msg ? ((addr) == 0x1BE) : ((addr) == 0x17C);
   if (is_user_brake_msg) {
-    int brake = honda_alt_brake_msg ? (GET_BYTE((to_push), 0) & 0x10) : (GET_BYTE((to_push), 6) & 0x20);
-    if (brake && (!(honda_brake_prev) || honda_moving)) {
+    bool brake_pressed = honda_alt_brake_msg ? (GET_BYTE((to_push), 0) & 0x10) : (GET_BYTE((to_push), 6) & 0x20);
+    if (brake_pressed && (!(honda_brake_pressed_prev) || honda_moving)) {
       controls_allowed = 0;
     }
-    honda_brake_prev = brake;
+    honda_brake_pressed_prev = brake_pressed;
   }
 
   // exit controls on rising edge of gas press if interceptor (0x201 w/ len = 6)
@@ -81,6 +84,20 @@ static void honda_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
       honda_gas_prev = gas;
     }
   }
+  if ((bus == 2) && (addr == 0x1FA)) {
+    bool honda_stock_aeb = GET_BYTE(to_push, 3) & 0x20;
+    int honda_stock_brake = (GET_BYTE(to_push, 0) << 2) + ((GET_BYTE(to_push, 1) >> 6) & 0x3);
+
+    // Forward AEB when stock braking is higher than openpilot braking
+    // only stop forwarding when AEB event is over
+    if (!honda_stock_aeb) {
+      honda_fwd_brake = false;
+    } else if (honda_stock_brake >= honda_brake) {
+      honda_fwd_brake = true;
+    } else {
+      // Leave honda forward brake as is
+    }
+  }
 }
 
 // all commands: gas, brake and steering
@@ -98,18 +115,21 @@ static int honda_tx_hook(CAN_FIFOMailBox_TypeDef *to_send) {
   // disallow actuator commands if gas or brake (with vehicle moving) are pressed
   // and the the latching controls_allowed flag is True
   int pedal_pressed = honda_gas_prev || (gas_interceptor_prev > HONDA_GAS_INTERCEPTOR_THRESHOLD) ||
-                      (honda_brake_prev && honda_moving);
+                      (honda_brake_pressed_prev && honda_moving);
   bool current_controls_allowed = controls_allowed && !(pedal_pressed);
 
   // BRAKE: safety check
-  if (addr == 0x1FA) {
-    int brake = (GET_BYTE(to_send, 0) << 2) + (GET_BYTE(to_send, 1) & 0x3);
+  if ((addr == 0x1FA) && (bus == 0)) {
+    honda_brake = (GET_BYTE(to_send, 0) << 2) + ((GET_BYTE(to_send, 1) >> 6) & 0x3);
     if (!current_controls_allowed || !long_controls_allowed) {
-      if (brake != 0) {
+      if (honda_brake != 0) {
         tx = 0;
       }
     }
-    if (brake > 255) {
+    if (honda_brake > 255) {
+      tx = 0;
+    }
+    if (honda_fwd_brake) {
       tx = 0;
     }
   }
@@ -136,7 +156,7 @@ static int honda_tx_hook(CAN_FIFOMailBox_TypeDef *to_send) {
   // FORCE CANCEL: safety check only relevant when spamming the cancel button in Bosch HW
   // ensuring that only the cancel button press is sent (VAL 2) when controls are off.
   // This avoids unintended engagements while still allowing resume spam
-  int bus_pt = ((hw_type == HW_TYPE_BLACK_PANDA) && honda_bosch_hardware)? 1 : 0;
+  int bus_pt = ((board_has_relay()) && honda_bosch_hardware)? 1 : 0;
   if ((addr == 0x296) && honda_bosch_hardware &&
       !current_controls_allowed && (bus == bus_pt)) {
     if (((GET_BYTE(to_send, 0) >> 5) & 0x7) != 2) {
@@ -175,9 +195,12 @@ static int honda_fwd_hook(int bus_num, CAN_FIFOMailBox_TypeDef *to_fwd) {
   if (bus_num == 2) {
     // block stock lkas messages and stock acc messages (if OP is doing ACC)
     int addr = GET_ADDR(to_fwd);
-    int is_lkas_msg = (addr == 0xE4) || (addr == 0x194) || (addr == 0x33D);
-    int is_acc_msg = (addr == 0x1FA) || (addr == 0x30C) || (addr == 0x39F);
-    int block_fwd = is_lkas_msg || (is_acc_msg && long_controls_allowed);
+    bool is_lkas_msg = (addr == 0xE4) || (addr == 0x194) || (addr == 0x33D);
+    bool is_acc_hud_msg = (addr == 0x30C) || (addr == 0x39F);
+    bool is_brake_msg = addr == 0x1FA;
+    bool block_fwd = is_lkas_msg ||
+                     (is_acc_hud_msg && long_controls_allowed) ||
+                     (is_brake_msg && long_controls_allowed && !honda_fwd_brake);
     if (!block_fwd) {
       bus_fwd = 0;
     }
@@ -187,8 +210,8 @@ static int honda_fwd_hook(int bus_num, CAN_FIFOMailBox_TypeDef *to_fwd) {
 
 static int honda_bosch_fwd_hook(int bus_num, CAN_FIFOMailBox_TypeDef *to_fwd) {
   int bus_fwd = -1;
-  int bus_rdr_cam = (hw_type == HW_TYPE_BLACK_PANDA) ? 2 : 1;  // radar bus, camera side
-  int bus_rdr_car = (hw_type == HW_TYPE_BLACK_PANDA) ? 0 : 2;  // radar bus, car side
+  int bus_rdr_cam = (board_has_relay()) ? 2 : 1;  // radar bus, camera side
+  int bus_rdr_car = (board_has_relay()) ? 0 : 2;  // radar bus, car side
 
   if (bus_num == bus_rdr_car) {
     bus_fwd = bus_rdr_cam;
@@ -208,7 +231,6 @@ const safety_hooks honda_hooks = {
   .rx = honda_rx_hook,
   .tx = honda_tx_hook,
   .tx_lin = nooutput_tx_lin_hook,
-  .ignition = default_ign_hook,
   .fwd = honda_fwd_hook,
 };
 
@@ -217,6 +239,5 @@ const safety_hooks honda_bosch_hooks = {
   .rx = honda_rx_hook,
   .tx = honda_tx_hook,
   .tx_lin = nooutput_tx_lin_hook,
-  .ignition = default_ign_hook,
   .fwd = honda_bosch_fwd_hook,
 };

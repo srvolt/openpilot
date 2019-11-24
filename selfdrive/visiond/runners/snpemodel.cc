@@ -9,9 +9,17 @@ void PrintErrorStringAndExit() {
   std::exit(EXIT_FAILURE);
 }
 
-SNPEModel::SNPEModel(const char *path, float *output, size_t output_size) {
+SNPEModel::SNPEModel(const char *path, float *output, size_t output_size, int runtime) {
 #ifdef QCOM
-  assert(zdl::SNPE::SNPEFactory::isRuntimeAvailable(zdl::DlSystem::Runtime_t::GPU));
+  zdl::DlSystem::Runtime_t Runtime;
+  if (runtime==USE_GPU_RUNTIME) {
+    Runtime = zdl::DlSystem::Runtime_t::GPU;
+  } else if (runtime==USE_DSP_RUNTIME) {
+    Runtime = zdl::DlSystem::Runtime_t::DSP;
+  } else {
+    Runtime = zdl::DlSystem::Runtime_t::CPU;
+  }
+  assert(zdl::SNPE::SNPEFactory::isRuntimeAvailable(Runtime));
 #endif
   size_t model_size;
   model_data = (uint8_t *)read_file(path, &model_size);
@@ -27,7 +35,7 @@ SNPEModel::SNPEModel(const char *path, float *output, size_t output_size) {
   while (!snpe) {
 #ifdef QCOM
     snpe = snpeBuilder.setOutputLayers({})
-                      .setRuntimeProcessor(zdl::DlSystem::Runtime_t::GPU)
+                      .setRuntimeProcessor(Runtime)
                       .setUseUserSuppliedBuffers(true)
                       .setPerformanceProfile(zdl::DlSystem::PerformanceProfile_t::HIGH_PERFORMANCE)
                       .build();
@@ -86,18 +94,27 @@ SNPEModel::SNPEModel(const char *path, float *output, size_t output_size) {
 }
 
 void SNPEModel::addRecurrent(float *state, int state_size) {
+  recurrentBuffer = this->addExtra(state, state_size, 2);
+}
+
+void SNPEModel::addDesire(float *state, int state_size) {
+  desireBuffer = this->addExtra(state, state_size, 1);
+}
+
+std::unique_ptr<zdl::DlSystem::IUserBuffer> SNPEModel::addExtra(float *state, int state_size, int idx) {
   // get input and output names
   const auto &strListi_opt = snpe->getInputTensorNames();
   if (!strListi_opt) throw std::runtime_error("Error obtaining Input tensor names");
   const auto &strListi = *strListi_opt;
-  const char *input_tensor_name = strListi.at(1);
-  printf("adding recurrent: %s\n", input_tensor_name);
+  const char *input_tensor_name = strListi.at(idx);
+  printf("adding index %d: %s\n", idx, input_tensor_name);
 
   zdl::DlSystem::UserBufferEncodingFloat userBufferEncodingFloat;
   zdl::DlSystem::IUserBufferFactory& ubFactory = zdl::SNPE::SNPEFactory::getUserBufferFactory();
-  std::vector<size_t> recurrentStrides = {state_size * sizeof(float), sizeof(float)};
-  recurrentBuffer = ubFactory.createUserBuffer(state, state_size * sizeof(float), recurrentStrides, &userBufferEncodingFloat);
-  inputMap.add(input_tensor_name, recurrentBuffer.get());
+  std::vector<size_t> retStrides = {state_size * sizeof(float), sizeof(float)};
+  auto ret = ubFactory.createUserBuffer(state, state_size * sizeof(float), retStrides, &userBufferEncodingFloat);
+  inputMap.add(input_tensor_name, ret.get());
+  return ret;
 }
 
 void SNPEModel::execute(float *net_input_buf) {
