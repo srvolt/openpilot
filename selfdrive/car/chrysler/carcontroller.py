@@ -1,17 +1,10 @@
 from selfdrive.car import apply_toyota_steer_torque_limits
 from selfdrive.car.chrysler.chryslercan import create_lkas_hud, create_lkas_command, \
                                                create_wheel_buttons
-from selfdrive.car.chrysler.values import ECU, CAR
+from selfdrive.car.chrysler.values import ECU, CAR, SteerLimitParams
 from selfdrive.can.packer import CANPacker
 
-class SteerLimitParams:
-  STEER_MAX = 261         # 262 faults
-  STEER_DELTA_UP = 3      # 3 is stock. 100 is fine. 200 is too much it seems
-  STEER_DELTA_DOWN = 3    # no faults on the way down it seems
-  STEER_ERROR_MAX = 80
-
-
-class CarController(object):
+class CarController():
   def __init__(self, dbc_name, car_fingerprint, enable_camera):
     self.braking = False
     # redundant safety check with the board
@@ -31,7 +24,7 @@ class CarController(object):
     self.packer = CANPacker(dbc_name)
 
 
-  def update(self, enabled, CS, frame, actuators, pcm_cancel_cmd, hud_alert):
+  def update(self, enabled, CS, actuators, pcm_cancel_cmd, hud_alert):
     # this seems needed to avoid steering faults and to force the sync with the EPS counter
     frame = CS.lkas_counter
     if self.prev_frame == frame:
